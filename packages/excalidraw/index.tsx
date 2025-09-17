@@ -99,6 +99,7 @@ const ExcalidrawBase = (props: ExcalidrawProps) => {
     onPointerUp,
     onScrollChange,
     onDuplicate,
+    id,
     children,
     validateEmbeddable,
     renderEmbeddable,
@@ -186,6 +187,7 @@ const ExcalidrawBase = (props: ExcalidrawProps) => {
       <InitializeApp langCode={langCode} theme={theme}>
         <App
           onExport={onExport}
+          id={id}
           onChange={onChange}
           onThemeChange={onThemeChange}
           onIncrement={onIncrement}
@@ -329,7 +331,6 @@ export {
 export { reconcileElements } from "./data/reconcile";
 
 export {
-  exportToCanvas,
   exportToBlob,
   exportToSvg,
   exportToClipboard,
@@ -452,3 +453,16 @@ export function useExcalidrawStateValue(
 export { _useOnAppStateChange as useOnExcalidrawStateChange };
 
 export { applyDarkModeFilter, getStrokeWidthByKey };
+
+export {
+  getDefaultAppState,
+  cleanAppStateForExport,
+  clearAppStateForLocalStorage,
+} from "./appState";
+
+export { libraryItemsAtom } from "./data/library";
+
+export { exportToCanvas } from "./scene/export";
+
+export * as icons from "./components/icons";
+export * as actions from "./actions/index";
