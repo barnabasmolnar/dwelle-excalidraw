@@ -14,11 +14,16 @@ import {
 } from "@excalidraw/element";
 import {
   elementOverlapsWithFrame,
+  getContainingFrame,
   getTargetFrame,
   shouldApplyFrameClip,
 } from "@excalidraw/element";
 
-import { renderElement } from "@excalidraw/element";
+import {
+  getRenderElementWithPositionOverride,
+  getRenderOpacity,
+  renderElement,
+} from "@excalidraw/element";
 
 import { getElementAbsoluteCoords } from "@excalidraw/element";
 
@@ -172,6 +177,8 @@ const renderLinkIcon = (
   elementsMap: ElementsMap,
   renderConfig: StaticCanvasRenderConfig,
 ) => {
+  element = getRenderElementWithPositionOverride(element, renderConfig);
+
   if (element.link && !appState.selectedElementIds[element.id]) {
     const [x1, y1, x2, y2] = getElementAbsoluteCoords(element, elementsMap);
     const [x, y, width, height] = getLinkHandleFromCoords(
@@ -223,7 +230,13 @@ const renderLinkIcon = (
 
       linkCanvasCacheContext.restore();
     }
-    context.globalAlpha = element.opacity / 100;
+    context.globalAlpha = getRenderOpacity(
+      element,
+      renderConfig,
+      getContainingFrame(element, elementsMap),
+      renderConfig.elementsPendingErasure,
+      renderConfig.pendingFlowchartNodes,
+    );
     context.drawImage(linkCanvas, x - centerX, y - centerY, width, height);
     context.restore();
   }
