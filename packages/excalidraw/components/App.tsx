@@ -215,6 +215,8 @@ import {
   ShapeCache,
   clearRenderCache,
   getRenderOpacity,
+  resolveRenderPositionOffset,
+  resolveRenderOpacity,
 } from "@excalidraw/element";
 
 import {
@@ -463,6 +465,7 @@ import { searchItemInFocusAtom } from "./SearchMenu";
 import { isSidebarDockedAtom } from "./Sidebar/Sidebar";
 import { StaticCanvas, InteractiveCanvas } from "./canvases";
 import NewElementCanvas from "./canvases/NewElementCanvas";
+import { AnimationController } from "../renderer/animation";
 import {
   isPointHittingLink,
   isPointHittingLinkIcon,
@@ -763,6 +766,235 @@ class App extends React.Component<AppProps, AppState> {
   onRemoveEventListenersEmitter = new Emitter<[]>();
 
   api: ExcalidrawImperativeAPI;
+  private renderAnimationVersion = 0;
+  private elementOpacityOverrides = new Map<string, number>();
+  private elementPositionOverrides = new Map<string, { x: number; y: number }>();
+  private elementAnimationStates = new Map<
+    string,
+    {
+      opacityFrom: number;
+      opacityTo: number;
+      positionFrom: { x: number; y: number };
+      positionTo: { x: number; y: number };
+      easing: "linear" | "easeOut" | "easeInOut";
+      duration: number;
+      delay: number;
+      elapsed: number;
+    }
+  >();
+
+  private getElementAnimationKey = () => `${this.id}:animate-element`;
+
+  private bumpRenderAnimationVersion = () => {
+    this.renderAnimationVersion++;
+    this.setState({});
+  };
+
+  private getRenderOpacityConfig = () => ({
+    elementOpacityOverrides: this.elementOpacityOverrides,
+    elementPositionOverrides: this.elementPositionOverrides,
+    resolveRenderOpacity: this.props.resolveRenderOpacity,
+  });
+
+  private getResolvedElementOpacity = (element: NonDeletedExcalidrawElement) => {
+    return resolveRenderOpacity(element, this.getRenderOpacityConfig());
+  };
+
+  private getElementVisibleOpacity = (element: NonDeletedExcalidrawElement) => {
+    return clamp(element.opacity, 0, 100);
+  };
+
+  private applyAnimationEasing = (
+    progress: number,
+    easing: "linear" | "easeOut" | "easeInOut",
+  ) => {
+    switch (easing) {
+      case "linear":
+        return progress;
+      case "easeOut":
+        return easeOut(progress);
+      case "easeInOut":
+        return progress < 0.5
+          ? 4 * progress * progress * progress
+          : 1 - Math.pow(-2 * progress + 2, 3) / 2;
+    }
+  };
+
+  private getFlyPositionOffset = (
+    element: NonDeletedExcalidrawElement,
+    from: "left" | "right" | "top" | "bottom",
+  ) => {
+    const [x1, y1, x2, y2] = getElementAbsoluteCoords(
+      element,
+      this.scene.getNonDeletedElementsMap(),
+    );
+    const viewportWidth = this.state.width / this.state.zoom.value;
+    const viewportHeight = this.state.height / this.state.zoom.value;
+    const elementWidth = x2 - x1;
+    const elementHeight = y2 - y1;
+
+    switch (from) {
+      case "left":
+        return { x: -(Math.max(viewportWidth, elementWidth) + 64), y: 0 };
+      case "right":
+        return { x: Math.max(viewportWidth, elementWidth) + 64, y: 0 };
+      case "top":
+        return { x: 0, y: -(Math.max(viewportHeight, elementHeight) + 64) };
+      case "bottom":
+        return { x: 0, y: Math.max(viewportHeight, elementHeight) + 64 };
+    }
+  };
+
+  private animateElement = ({
+    id,
+    opacityFrom,
+    opacityTo,
+    positionFrom = { x: 0, y: 0 },
+    positionTo = { x: 0, y: 0 },
+    easing,
+    duration,
+    delay,
+  }: {
+    id: string;
+    opacityFrom: number;
+    opacityTo: number;
+    positionFrom?: { x: number; y: number };
+    positionTo?: { x: number; y: number };
+    easing: "linear" | "easeOut" | "easeInOut";
+    duration: number;
+    delay: number;
+  }) => {
+    const normalizedOpacityFrom = clamp(opacityFrom, 0, 100);
+    const normalizedOpacityTo = clamp(opacityTo, 0, 100);
+    const normalizedDuration = Math.max(duration, 0);
+    const normalizedDelay = Math.max(delay, 0);
+
+    this.elementOpacityOverrides.set(id, normalizedOpacityFrom);
+
+    if (positionFrom.x !== 0 || positionFrom.y !== 0) {
+      this.elementPositionOverrides.set(id, positionFrom);
+    } else {
+      this.elementPositionOverrides.delete(id);
+    }
+
+    if (normalizedDuration === 0 && normalizedDelay === 0) {
+      this.elementAnimationStates.delete(id);
+      this.elementOpacityOverrides.set(id, normalizedOpacityTo);
+
+      if (positionTo.x !== 0 || positionTo.y !== 0) {
+        this.elementPositionOverrides.set(id, positionTo);
+      } else {
+        this.elementPositionOverrides.delete(id);
+      }
+
+      this.bumpRenderAnimationVersion();
+      return;
+    }
+
+    this.elementAnimationStates.set(id, {
+      opacityFrom: normalizedOpacityFrom,
+      opacityTo: normalizedOpacityTo,
+      positionFrom,
+      positionTo,
+      easing,
+      duration: normalizedDuration,
+      delay: normalizedDelay,
+      elapsed: 0,
+    });
+
+    this.bumpRenderAnimationVersion();
+    this.syncElementAnimations();
+  };
+
+  private syncElementAnimations = () => {
+    const animationKey = this.getElementAnimationKey();
+
+    if (this.elementAnimationStates.size === 0) {
+      AnimationController.cancel(animationKey);
+      return;
+    }
+
+    if (AnimationController.running(animationKey)) {
+      return;
+    }
+
+    AnimationController.start(animationKey, ({ deltaTime }) => {
+      let shouldRerender = false;
+
+      for (const [id, animation] of this.elementAnimationStates) {
+        const element = this.scene.getNonDeletedElement(id);
+
+        if (!element) {
+          this.elementAnimationStates.delete(id);
+          shouldRerender =
+            this.elementOpacityOverrides.delete(id) || shouldRerender;
+          shouldRerender =
+            this.elementPositionOverrides.delete(id) || shouldRerender;
+          continue;
+        }
+
+        animation.elapsed += deltaTime;
+
+        const progress =
+          animation.elapsed <= animation.delay
+            ? 0
+            : animation.duration === 0
+              ? 1
+              : Math.min(
+                  (animation.elapsed - animation.delay) / animation.duration,
+                  1,
+                );
+        const easedProgress = this.applyAnimationEasing(
+          progress,
+          animation.easing,
+        );
+
+        const nextOpacity =
+          animation.opacityFrom +
+          (animation.opacityTo - animation.opacityFrom) * easedProgress;
+        const nextPosition = {
+          x:
+            animation.positionFrom.x +
+            (animation.positionTo.x - animation.positionFrom.x) * easedProgress,
+          y:
+            animation.positionFrom.y +
+            (animation.positionTo.y - animation.positionFrom.y) * easedProgress,
+        };
+
+        const clampedOpacity = clamp(nextOpacity, 0, 100);
+
+        if (this.elementOpacityOverrides.get(id) !== clampedOpacity) {
+          this.elementOpacityOverrides.set(id, clampedOpacity);
+          shouldRerender = true;
+        }
+
+        const currentPositionOverride =
+          this.elementPositionOverrides.get(id) ?? ({ x: 0, y: 0 } as const);
+
+        if (
+          currentPositionOverride.x !== nextPosition.x ||
+          currentPositionOverride.y !== nextPosition.y
+        ) {
+          if (nextPosition.x === 0 && nextPosition.y === 0) {
+            this.elementPositionOverrides.delete(id);
+          } else {
+            this.elementPositionOverrides.set(id, nextPosition);
+          }
+          shouldRerender = true;
+        }
+
+        if (animation.elapsed >= animation.delay + animation.duration) {
+          this.elementAnimationStates.delete(id);
+        }
+      }
+
+      if (shouldRerender) {
+        this.bumpRenderAnimationVersion();
+      }
+
+      return this.elementAnimationStates.size > 0 ? {} : undefined;
+    });
+  };
 
   private createExcalidrawAPI(): ExcalidrawImperativeAPI {
     const api: ExcalidrawImperativeAPI = {
@@ -781,6 +1013,9 @@ class App extends React.Component<AppProps, AppState> {
         clear: this.resetHistory,
       },
       scrollToContent: this.scrollToContent,
+      animateElements: this.animateElements,
+      cancelElementAnimation: this.cancelElementAnimation,
+      clearElementAnimationOverrides: this.clearElementAnimationOverrides,
       getSceneElements: this.getSceneElements,
       getAppState: () => this.state,
       getFiles: () => this.files,
@@ -1765,6 +2000,10 @@ class App extends React.Component<AppProps, AppState> {
           const isHovered =
             this.state.activeEmbeddable?.element === el &&
             this.state.activeEmbeddable?.state === "hover";
+          const renderPositionOffset = resolveRenderPositionOffset(
+            el,
+            this.getRenderOpacityConfig(),
+          );
 
           // scale video embeds based on zoom (capped) so that smaller embeds
           // on canvas when zoomed are still of legible quality
@@ -1786,13 +2025,14 @@ class App extends React.Component<AppProps, AppState> {
               })}
               style={{
                 transform: isVisible
-                  ? `translate(${x - this.state.offsetLeft}px, ${
-                      y - this.state.offsetTop
+                  ? `translate(${x + renderPositionOffset.x * this.state.zoom.value - this.state.offsetLeft}px, ${
+                      y + renderPositionOffset.y * this.state.zoom.value - this.state.offsetTop
                     }px) scale(${scale})`
                   : "none",
                 display: isVisible ? "block" : "none",
                 opacity: getRenderOpacity(
                   el,
+                  this.getRenderOpacityConfig(),
                   getContainingFrame(el, this.scene.getNonDeletedElementsMap()),
                   this.elementsPendingErasure,
                   null,
@@ -2390,6 +2630,9 @@ class App extends React.Component<AppProps, AppState> {
                               pendingFlowchartNodes:
                                 this.flowChartCreator.pendingNodes,
                               theme: this.state.theme,
+                              ...this.getRenderOpacityConfig(),
+                              renderAnimationVersion:
+                                this.renderAnimationVersion,
                             }}
                           />
                           {newElementCanvasElement && (
@@ -2412,6 +2655,9 @@ class App extends React.Component<AppProps, AppState> {
                                   this.elementsPendingErasure,
                                 pendingFlowchartNodes: null,
                                 theme: this.state.theme,
+                                ...this.getRenderOpacityConfig(),
+                                renderAnimationVersion:
+                                  this.renderAnimationVersion,
                               }}
                             />
                           )}
@@ -3265,6 +3511,7 @@ class App extends React.Component<AppProps, AppState> {
     this.editorLifecycleEvents.emit("editor:unmount");
     this.props.onUnmount?.();
     this.props.onExcalidrawAPI?.(null);
+    AnimationController.cancel(this.getElementAnimationKey());
 
     (window as any).launchQueue?.setConsumer(() => {});
 
@@ -4888,6 +5135,98 @@ class App extends React.Component<AppProps, AppState> {
       }
     },
   );
+
+  public animateElements = ({
+    elements,
+    duration = 250,
+    delay = 0,
+    stagger = 0,
+    phase = "in",
+    easing,
+    ...animation
+  }:
+    | {
+        elements: readonly (ExcalidrawElement | ExcalidrawElement["id"])[];
+        type: "fade";
+        duration?: number;
+        delay?: number;
+        stagger?: number;
+        phase?: "in" | "out";
+        easing?: "linear" | "easeOut" | "easeInOut";
+      }
+    | {
+        elements: readonly (ExcalidrawElement | ExcalidrawElement["id"])[];
+        type: "fly";
+        from: "left" | "right" | "top" | "bottom";
+        duration?: number;
+        delay?: number;
+        stagger?: number;
+        phase?: "in" | "out";
+        easing?: "linear" | "easeOut" | "easeInOut";
+      }) => {
+    const normalizedDelay = Math.max(delay, 0);
+    const normalizedStagger = Math.max(stagger, 0);
+
+    elements.forEach((elementOrId, index) => {
+      const id = typeof elementOrId === "string" ? elementOrId : elementOrId.id;
+      const element = this.scene.getNonDeletedElement(id);
+
+      if (!element) {
+        return;
+      }
+
+      if (animation.type === "fade") {
+        this.animateElement({
+          id,
+          opacityFrom:
+            phase === "in" ? 0 : this.getElementVisibleOpacity(element),
+          opacityTo:
+            phase === "in" ? this.getElementVisibleOpacity(element) : 0,
+          easing: easing ?? "easeInOut",
+          duration,
+          delay: normalizedDelay + index * normalizedStagger,
+        });
+        return;
+      }
+
+      const flyOffset = this.getFlyPositionOffset(element, animation.from);
+
+      this.animateElement({
+        id,
+        opacityFrom: phase === "in" ? 0 : this.getElementVisibleOpacity(element),
+        opacityTo: phase === "in" ? this.getElementVisibleOpacity(element) : 0,
+        positionFrom: phase === "in" ? flyOffset : { x: 0, y: 0 },
+        positionTo: phase === "in" ? { x: 0, y: 0 } : flyOffset,
+        easing: easing ?? "easeOut",
+        duration,
+        delay: normalizedDelay + index * normalizedStagger,
+      });
+    });
+  };
+
+  public cancelElementAnimation = (id: string) => {
+    if (!this.elementAnimationStates.delete(id)) {
+      return;
+    }
+
+    this.syncElementAnimations();
+  };
+
+  public clearElementAnimationOverrides = () => {
+    if (
+      this.elementOpacityOverrides.size === 0 &&
+      this.elementPositionOverrides.size === 0 &&
+      this.elementAnimationStates.size === 0
+    ) {
+      return;
+    }
+
+    this.elementAnimationStates.clear();
+    this.elementOpacityOverrides.clear();
+    this.elementPositionOverrides.clear();
+    this.syncElementAnimations();
+    this.bumpRenderAnimationVersion();
+  };
 
   public applyDeltas = (
     deltas: StoreDelta[],
