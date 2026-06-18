@@ -447,6 +447,8 @@ import { getShortcutKey } from "../shortcut";
 
 import { tryParseSpreadsheet } from "../charts";
 
+import { AnimationController } from "../renderer/animation";
+
 import ConvertElementTypePopup, {
   getConversionTypeFromElements,
   convertElementTypePopupAtom,
@@ -465,7 +467,6 @@ import { searchItemInFocusAtom } from "./SearchMenu";
 import { isSidebarDockedAtom } from "./Sidebar/Sidebar";
 import { StaticCanvas, InteractiveCanvas } from "./canvases";
 import NewElementCanvas from "./canvases/NewElementCanvas";
-import { AnimationController } from "../renderer/animation";
 import {
   isPointHittingLink,
   isPointHittingLinkIcon,
@@ -768,7 +769,10 @@ class App extends React.Component<AppProps, AppState> {
   api: ExcalidrawImperativeAPI;
   private renderAnimationVersion = 0;
   private elementOpacityOverrides = new Map<string, number>();
-  private elementPositionOverrides = new Map<string, { x: number; y: number }>();
+  private elementPositionOverrides = new Map<
+    string,
+    { x: number; y: number }
+  >();
   private elementAnimationStates = new Map<
     string,
     {
@@ -796,7 +800,9 @@ class App extends React.Component<AppProps, AppState> {
     resolveRenderOpacity: this.props.resolveRenderOpacity,
   });
 
-  private getResolvedElementOpacity = (element: NonDeletedExcalidrawElement) => {
+  private getResolvedElementOpacity = (
+    element: NonDeletedExcalidrawElement,
+  ) => {
     return resolveRenderOpacity(element, this.getRenderOpacityConfig());
   };
 
@@ -854,6 +860,7 @@ class App extends React.Component<AppProps, AppState> {
     easing,
     duration,
     delay,
+    skipSync = false,
   }: {
     id: string;
     opacityFrom: number;
@@ -863,6 +870,7 @@ class App extends React.Component<AppProps, AppState> {
     easing: "linear" | "easeOut" | "easeInOut";
     duration: number;
     delay: number;
+    skipSync?: boolean;
   }) => {
     const normalizedOpacityFrom = clamp(opacityFrom, 0, 100);
     const normalizedOpacityTo = clamp(opacityTo, 0, 100);
@@ -887,8 +895,10 @@ class App extends React.Component<AppProps, AppState> {
         this.elementPositionOverrides.delete(id);
       }
 
-      this.bumpRenderAnimationVersion();
-      return;
+      if (!skipSync) {
+        this.bumpRenderAnimationVersion();
+      }
+      return true;
     }
 
     this.elementAnimationStates.set(id, {
@@ -902,8 +912,12 @@ class App extends React.Component<AppProps, AppState> {
       elapsed: 0,
     });
 
-    this.bumpRenderAnimationVersion();
-    this.syncElementAnimations();
+    if (!skipSync) {
+      this.bumpRenderAnimationVersion();
+      this.syncElementAnimations();
+    }
+
+    return true;
   };
 
   private syncElementAnimations = () => {
@@ -939,11 +953,11 @@ class App extends React.Component<AppProps, AppState> {
           animation.elapsed <= animation.delay
             ? 0
             : animation.duration === 0
-              ? 1
-              : Math.min(
-                  (animation.elapsed - animation.delay) / animation.duration,
-                  1,
-                );
+            ? 1
+            : Math.min(
+                (animation.elapsed - animation.delay) / animation.duration,
+                1,
+              );
         const easedProgress = this.applyAnimationEasing(
           progress,
           animation.easing,
@@ -2025,8 +2039,14 @@ class App extends React.Component<AppProps, AppState> {
               })}
               style={{
                 transform: isVisible
-                  ? `translate(${x + renderPositionOffset.x * this.state.zoom.value - this.state.offsetLeft}px, ${
-                      y + renderPositionOffset.y * this.state.zoom.value - this.state.offsetTop
+                  ? `translate(${
+                      x +
+                      renderPositionOffset.x * this.state.zoom.value -
+                      this.state.offsetLeft
+                    }px, ${
+                      y +
+                      renderPositionOffset.y * this.state.zoom.value -
+                      this.state.offsetTop
                     }px) scale(${scale})`
                   : "none",
                 display: isVisible ? "block" : "none",
@@ -5166,6 +5186,7 @@ class App extends React.Component<AppProps, AppState> {
       }) => {
     const normalizedDelay = Math.max(delay, 0);
     const normalizedStagger = Math.max(stagger, 0);
+    let shouldSync = false;
 
     elements.forEach((elementOrId, index) => {
       const id = typeof elementOrId === "string" ? elementOrId : elementOrId.id;
@@ -5176,32 +5197,43 @@ class App extends React.Component<AppProps, AppState> {
       }
 
       if (animation.type === "fade") {
+        shouldSync =
+          this.animateElement({
+            id,
+            opacityFrom:
+              phase === "in" ? 0 : this.getElementVisibleOpacity(element),
+            opacityTo:
+              phase === "in" ? this.getElementVisibleOpacity(element) : 0,
+            easing: easing ?? "easeInOut",
+            duration,
+            delay: normalizedDelay + index * normalizedStagger,
+            skipSync: true,
+          }) || shouldSync;
+        return;
+      }
+
+      const flyOffset = this.getFlyPositionOffset(element, animation.from);
+
+      shouldSync =
         this.animateElement({
           id,
           opacityFrom:
             phase === "in" ? 0 : this.getElementVisibleOpacity(element),
           opacityTo:
             phase === "in" ? this.getElementVisibleOpacity(element) : 0,
-          easing: easing ?? "easeInOut",
+          positionFrom: phase === "in" ? flyOffset : { x: 0, y: 0 },
+          positionTo: phase === "in" ? { x: 0, y: 0 } : flyOffset,
+          easing: easing ?? "easeOut",
           duration,
           delay: normalizedDelay + index * normalizedStagger,
-        });
-        return;
-      }
-
-      const flyOffset = this.getFlyPositionOffset(element, animation.from);
-
-      this.animateElement({
-        id,
-        opacityFrom: phase === "in" ? 0 : this.getElementVisibleOpacity(element),
-        opacityTo: phase === "in" ? this.getElementVisibleOpacity(element) : 0,
-        positionFrom: phase === "in" ? flyOffset : { x: 0, y: 0 },
-        positionTo: phase === "in" ? { x: 0, y: 0 } : flyOffset,
-        easing: easing ?? "easeOut",
-        duration,
-        delay: normalizedDelay + index * normalizedStagger,
-      });
+          skipSync: true,
+        }) || shouldSync;
     });
+
+    if (shouldSync) {
+      this.bumpRenderAnimationVersion();
+      this.syncElementAnimations();
+    }
   };
 
   public cancelElementAnimation = (id: string) => {
