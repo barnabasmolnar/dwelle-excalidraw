@@ -5179,10 +5179,40 @@ class App extends React.Component<AppProps, AppState> {
       }) => {
     const normalizedDelay = Math.max(delay, 0);
     const normalizedStagger = Math.max(stagger, 0);
+    const expandedElementIds: string[] = [];
+    const seenElementIds = new Set<string>();
+    const elementsMap = this.scene.getNonDeletedElementsMap();
+    const addAnimatedElement = (elementId: string | null | undefined) => {
+      if (!elementId || seenElementIds.has(elementId)) {
+        return;
+      }
+      seenElementIds.add(elementId);
+      expandedElementIds.push(elementId);
+    };
     let shouldSync = false;
 
-    elements.forEach((elementOrId, index) => {
+    elements.forEach((elementOrId) => {
       const id = typeof elementOrId === "string" ? elementOrId : elementOrId.id;
+      const element = this.scene.getNonDeletedElement(id);
+
+      if (!element) {
+        return;
+      }
+
+      addAnimatedElement(element.id);
+
+      const boundTextElement = getBoundTextElement(element, elementsMap);
+
+      if (boundTextElement) {
+        addAnimatedElement(boundTextElement.id);
+      }
+
+      if (isTextElement(element) && element.containerId) {
+        addAnimatedElement(element.containerId);
+      }
+    });
+
+    expandedElementIds.forEach((id, index) => {
       const element = this.scene.getNonDeletedElement(id);
 
       if (!element) {
