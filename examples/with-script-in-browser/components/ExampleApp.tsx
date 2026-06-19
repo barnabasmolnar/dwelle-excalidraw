@@ -146,6 +146,17 @@ export default function ExampleApp({
 
   useCustom(excalidrawAPI, customArgs);
 
+  const getFadeDemoAnimatableElements = useCallback(() => {
+    if (!excalidrawAPI) {
+      return [];
+    }
+
+    return excalidrawAPI
+      .getSceneElements()
+      .filter((element) => fadeDemoElementIds.includes(element.id))
+      .filter((element) => !("containerId" in element && element.containerId));
+  }, [excalidrawAPI, fadeDemoElementIds]);
+
   useHandleLibrary({ excalidrawAPI });
 
   useEffect(() => {
@@ -695,9 +706,7 @@ export default function ExampleApp({
                 <select
                   value={demoAnimationType}
                   onChange={(event) =>
-                    setDemoAnimationType(
-                      event.target.value as "fade" | "fly",
-                    )
+                    setDemoAnimationType(event.target.value as "fade" | "fly")
                   }
                 >
                   <option value="fade">fade</option>
@@ -775,11 +784,7 @@ export default function ExampleApp({
                     return;
                   }
 
-                  const elements = excalidrawAPI
-                    .getSceneElements()
-                    .filter((element) =>
-                      fadeDemoElementIds.includes(element.id),
-                    );
+                  const elements = getFadeDemoAnimatableElements();
 
                   if (!elements.length) {
                     return;
@@ -824,11 +829,7 @@ export default function ExampleApp({
                     return;
                   }
 
-                  const elements = excalidrawAPI
-                    .getSceneElements()
-                    .filter((element) =>
-                      fadeDemoElementIds.includes(element.id),
-                    );
+                  const elements = getFadeDemoAnimatableElements();
 
                   if (!elements.length) {
                     return;
@@ -866,11 +867,7 @@ export default function ExampleApp({
                     return;
                   }
 
-                  const elements = excalidrawAPI
-                    .getSceneElements()
-                    .filter((element) =>
-                      fadeDemoElementIds.includes(element.id),
-                    );
+                  const elements = getFadeDemoAnimatableElements();
 
                   if (!elements.length) {
                     return;
