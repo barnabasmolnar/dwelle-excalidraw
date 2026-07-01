@@ -22,10 +22,9 @@ import { act, render, waitFor } from "./test-utils";
 const { h } = window;
 
 const querySearchInput = async () => {
-  const input =
-    h.app.excalidrawContainerValue.container?.querySelector<HTMLInputElement>(
-      `.${CLASSES.SEARCH_MENU_INPUT_WRAPPER} input`,
-    )!;
+  const input = h.app.excalidrawContainerValue.container?.querySelector(
+    `.${CLASSES.SEARCH_MENU_INPUT_WRAPPER} input`,
+  ) as HTMLInputElement | null;
   await waitFor(() => expect(input).not.toBeNull());
   return input;
 };
@@ -57,10 +56,9 @@ describe("search", () => {
       Keyboard.keyPress(KEYS.F);
     });
 
-    const searchInput =
-      h.app.excalidrawContainerValue.container?.querySelector<HTMLInputElement>(
-        `.${CLASSES.SEARCH_MENU_INPUT_WRAPPER} input`,
-      );
+    const searchInput = h.app.excalidrawContainerValue.container?.querySelector(
+      `.${CLASSES.SEARCH_MENU_INPUT_WRAPPER} input`,
+    ) as HTMLInputElement | null;
 
     act(() => {
       searchInput?.blur();

@@ -972,6 +972,29 @@ export type ExcalidrawImperativeAPIEventMap = {
   "editor:unmount": [];
 };
 
+export type ElementAnimationTerminalStatus =
+  | "finished"
+  | "cancelled"
+  | "interrupted"
+  | "destroyed";
+
+export type ElementAnimationStatus = "running" | ElementAnimationTerminalStatus;
+
+export type ElementAnimationResult = {
+  id: string;
+  status: ElementAnimationTerminalStatus;
+  elementIds: readonly ExcalidrawElement["id"][];
+};
+
+export type ElementAnimationHandle = {
+  id: string;
+  elementIds: readonly ExcalidrawElement["id"][];
+  finished: Promise<ElementAnimationResult>;
+  finish: () => ElementAnimationResult;
+  cancel: () => ElementAnimationResult;
+  getStatus: () => ElementAnimationStatus;
+};
+
 export interface ExcalidrawImperativeAPI {
   /** Whether the editor has been unmounted and the API is no longer usable. */
   isDestroyed: boolean;
