@@ -22,7 +22,6 @@ root.render(
       appTitle={"Excalidraw Example"}
       useCustom={(api: any, args?: any[]) => {}}
       excalidrawLib={window.ExcalidrawLib}
-      showFadeDemo={true}
     >
       <Excalidraw />
     </App>

@@ -109,42 +109,29 @@ const getCanvasPadding = (element: ExcalidrawElement) => {
 
 export const resolveRenderOpacity = (
   element: ExcalidrawElement,
-  renderConfig: Pick<
-    StaticCanvasRenderConfig,
-    "elementOpacityOverrides" | "resolveRenderOpacity"
-  >,
-) => {
-  const override = renderConfig.elementOpacityOverrides?.get(element.id);
-
-  if (override !== undefined) {
-    return clamp(override, 0, 100);
-  }
-
-  const resolvedOpacity = renderConfig.resolveRenderOpacity?.(
-    element as NonDeletedExcalidrawElement,
+  renderConfig: Pick<StaticCanvasRenderConfig, "elementRenderOverrides">,
+) =>
+  clamp(
+    renderConfig.elementRenderOverrides?.get(element.id)?.opacity ??
+      element.opacity,
+    0,
+    100,
   );
-
-  if (resolvedOpacity !== undefined) {
-    return clamp(resolvedOpacity, 0, 100);
-  }
-
-  return element.opacity;
-};
 
 export const resolveRenderPositionOffset = (
   element: ExcalidrawElement,
-  renderConfig: Pick<StaticCanvasRenderConfig, "elementPositionOverrides">,
-) => {
-  return (
-    renderConfig.elementPositionOverrides?.get(element.id) ?? { x: 0, y: 0 }
-  );
-};
+  renderConfig: Pick<StaticCanvasRenderConfig, "elementRenderOverrides">,
+) =>
+  renderConfig.elementRenderOverrides?.get(element.id)?.offset ?? {
+    x: 0,
+    y: 0,
+  };
 
 export const getRenderElementWithPositionOverride = <
-  TElement extends NonDeletedExcalidrawElement,
+  TElement extends ExcalidrawElement,
 >(
   element: TElement,
-  renderConfig: Pick<StaticCanvasRenderConfig, "elementPositionOverrides">,
+  renderConfig: Pick<StaticCanvasRenderConfig, "elementRenderOverrides">,
 ): TElement => {
   const positionOffset = resolveRenderPositionOffset(element, renderConfig);
 
@@ -162,7 +149,7 @@ export const getRenderElementWithPositionOverride = <
 const withRenderPositionOffset = <T>(
   context: CanvasRenderingContext2D,
   element: ExcalidrawElement,
-  renderConfig: Pick<StaticCanvasRenderConfig, "elementPositionOverrides">,
+  renderConfig: Pick<StaticCanvasRenderConfig, "elementRenderOverrides">,
   cb: (positionOffset: { x: number; y: number }) => T,
 ): T => {
   const positionOffset = resolveRenderPositionOffset(element, renderConfig);
@@ -183,10 +170,7 @@ const withRenderPositionOffset = <T>(
 
 export const getRenderOpacity = (
   element: ExcalidrawElement,
-  renderConfig: Pick<
-    StaticCanvasRenderConfig,
-    "elementOpacityOverrides" | "resolveRenderOpacity"
-  >,
+  renderConfig: Pick<StaticCanvasRenderConfig, "elementRenderOverrides">,
   containingFrame: ExcalidrawFrameLikeElement | null,
   elementsPendingErasure: ElementsPendingErasure,
   pendingNodes: Readonly<PendingExcalidrawElements> | null,
@@ -195,7 +179,9 @@ export const getRenderOpacity = (
   // multiplying frame opacity with element opacity to combine them
   // (e.g. frame 50% and element 50% opacity should result in 25% opacity)
   let opacity =
-    (((containingFrame?.opacity ?? 100) *
+    (((containingFrame
+      ? resolveRenderOpacity(containingFrame, renderConfig)
+      : 100) *
       resolveRenderOpacity(element, renderConfig)) /
       10000) *
     globalAlpha;

@@ -333,22 +333,32 @@ const _renderStaticScene = ({
         }
 
         context.save();
+        const boundTextElement = getBoundTextElement(element, elementsMap);
 
         if (
           frameId &&
           appState.frameRendering.enabled &&
           appState.frameRendering.clip
         ) {
-          const frame = getTargetFrame(element, elementsMap, appState);
+          const targetFrame = getTargetFrame(element, elementsMap, appState);
+          const frame =
+            targetFrame &&
+            getRenderElementWithPositionOverride(targetFrame, renderConfig);
           if (
             frame &&
-            shouldApplyFrameClip(
-              element,
-              frame,
-              appState,
-              elementsMap,
-              inFrameGroupsMap,
-            )
+            ((element.frameId === frame.id &&
+              (renderConfig.elementRenderOverrides?.get(element.id)?.offset ||
+                (boundTextElement &&
+                  renderConfig.elementRenderOverrides?.get(boundTextElement.id)
+                    ?.offset) ||
+                renderConfig.elementRenderOverrides?.get(frame.id)?.offset)) ||
+              shouldApplyFrameClip(
+                getRenderElementWithPositionOverride(element, renderConfig),
+                frame,
+                appState,
+                elementsMap,
+                inFrameGroupsMap,
+              ))
           ) {
             frameClip(frame, context, renderConfig, appState);
           }
@@ -373,7 +383,6 @@ const _renderStaticScene = ({
           );
         }
 
-        const boundTextElement = getBoundTextElement(element, elementsMap);
         if (boundTextElement) {
           renderElement(
             boundTextElement,
@@ -428,7 +437,13 @@ const _renderStaticScene = ({
             element.width &&
             element.height
           ) {
-            const label = createPlaceholderEmbeddableLabel(element);
+            const label = {
+              ...createPlaceholderEmbeddableLabel(element),
+              // Synthetic visual: resolve overrides and frame opacity through
+              // its owner, without creating another animation target.
+              id: element.id,
+              frameId: element.frameId,
+            };
             renderElement(
               label,
               elementsMap,
@@ -461,17 +476,23 @@ const _renderStaticScene = ({
         ) {
           context.save();
 
-          const frame = getTargetFrame(element, elementsMap, appState);
+          const targetFrame = getTargetFrame(element, elementsMap, appState);
+          const frame =
+            targetFrame &&
+            getRenderElementWithPositionOverride(targetFrame, renderConfig);
 
           if (
             frame &&
-            shouldApplyFrameClip(
-              element,
-              frame,
-              appState,
-              elementsMap,
-              inFrameGroupsMap,
-            )
+            ((element.frameId === frame.id &&
+              (renderConfig.elementRenderOverrides?.get(element.id)?.offset ||
+                renderConfig.elementRenderOverrides?.get(frame.id)?.offset)) ||
+              shouldApplyFrameClip(
+                getRenderElementWithPositionOverride(element, renderConfig),
+                frame,
+                appState,
+                elementsMap,
+                inFrameGroupsMap,
+              ))
           ) {
             frameClip(frame, context, renderConfig, appState);
           }

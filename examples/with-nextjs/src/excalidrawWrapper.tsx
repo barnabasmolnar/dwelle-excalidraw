@@ -1,5 +1,4 @@
 "use client";
-
 import * as excalidrawLib from "@excalidraw/excalidraw";
 import { Excalidraw } from "@excalidraw/excalidraw";
 
@@ -14,7 +13,6 @@ const ExcalidrawWrapper: React.FC = () => {
         appTitle={"Excalidraw with Nextjs Example"}
         useCustom={(api: any, args?: any[]) => {}}
         excalidrawLib={excalidrawLib}
-        showFadeDemo={true}
       >
         <Excalidraw />
       </App>

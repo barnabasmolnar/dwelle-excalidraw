@@ -779,9 +779,18 @@ export type UIConfig = {
   };
 };
 
-export type RenderOpacityResolver = (
-  element: NonDeletedExcalidrawElement,
-) => ExcalidrawElement["opacity"] | undefined;
+/** Supported visual changes. Geometry, content, bindings and styles are not overridable. */
+export type ElementRenderOverride = Readonly<{
+  /** Absolute render opacity (0–100, clamped). Omitted: use element.opacity. */
+  opacity?: number;
+  /** Translation in scene units. Does not change the element's coordinates. */
+  offset?: Readonly<{ x: number; y: number }>;
+}>;
+
+export type ElementRenderOverrides = ReadonlyMap<
+  ExcalidrawElement["id"],
+  ElementRenderOverride
+>;
 
 export interface ExcalidrawProps {
   id?: string | null;
@@ -977,23 +986,6 @@ export interface ExcalidrawProps {
     element: NonDeleted<ExcalidrawEmbeddableElement>,
     appState: AppState,
   ) => JSX.Element | null;
-  /**
-   * Resolves the render-time opacity of an element without mutating it
-   * (e.g. to hide elements that haven't been revealed yet in a presentation).
-   * Return `undefined` to fall back to the element's own opacity.
-   *
-   * Contract:
-   * - must be cheap — called for every element on every static-canvas render;
-   * - treat it like any memoized callback: memoize with `useCallback` keyed
-   *   on the state it reads (e.g. the set of revealed element ids). A new
-   *   function identity is what triggers a canvas repaint — mutating captured
-   *   state without changing identity won't repaint, and an inline arrow
-   *   forces a full canvas redraw on every React render;
-   * - animation overrides win over this resolver, including terminal values
-   *   after an animation finishes, until cleared via
-   *   `clearElementAnimationOverrides()` / `cancelElementAnimation()`.
-   */
-  resolveRenderOpacity?: RenderOpacityResolver;
   aiEnabled?: boolean;
   showDeprecatedFonts?: boolean;
   renderScrollbars?: boolean;
@@ -1289,53 +1281,6 @@ export type ExcalidrawImperativeAPIEventMap = {
   "editor:unmount": [];
 };
 
-export type ElementAnimationEasing = "linear" | "easeOut" | "easeInOut";
-
-export type ElementAnimationPhase = "in" | "out";
-
-export type ElementAnimationFlyFrom = "left" | "right" | "top" | "bottom";
-
-type ElementAnimationRequestBase = {
-  elements: readonly (ExcalidrawElement | ExcalidrawElement["id"])[];
-  duration?: number;
-  delay?: number;
-  stagger?: number;
-  phase?: ElementAnimationPhase;
-  easing?: ElementAnimationEasing;
-};
-
-export type ElementAnimationRequest =
-  | (ElementAnimationRequestBase & {
-      type: "fade";
-    })
-  | (ElementAnimationRequestBase & {
-      type: "fly";
-      from: ElementAnimationFlyFrom;
-    });
-
-export type ElementAnimationTerminalStatus =
-  | "finished"
-  | "cancelled"
-  | "interrupted"
-  | "destroyed";
-
-export type ElementAnimationStatus = "running" | ElementAnimationTerminalStatus;
-
-export type ElementAnimationResult = {
-  id: string;
-  status: ElementAnimationTerminalStatus;
-  elementIds: readonly ExcalidrawElement["id"][];
-};
-
-export type ElementAnimationHandle = {
-  id: string;
-  elementIds: readonly ExcalidrawElement["id"][];
-  finished: Promise<ElementAnimationResult>;
-  finish: () => ElementAnimationResult;
-  cancel: () => ElementAnimationResult;
-  getStatus: () => ElementAnimationStatus;
-};
-
 export interface ExcalidrawImperativeAPI {
   /** Whether the editor has been unmounted and the API is no longer usable. */
   isDestroyed: boolean;
@@ -1359,11 +1304,20 @@ export interface ExcalidrawImperativeAPI {
   getName: InstanceType<typeof App>["getName"];
   setViewport: InstanceType<typeof App>["viewport"]["setViewport"];
   getViewportOffsets: InstanceType<typeof App>["viewport"]["getOffsets"];
-  animateElements: InstanceType<typeof App>["animateElements"];
-  cancelElementAnimation: InstanceType<typeof App>["cancelElementAnimation"];
-  clearElementAnimationOverrides: InstanceType<
+  /**
+   * Atomically replaces all transient visual overrides. Values are copied;
+   * omitted IDs/fields use document values. null clears the snapshot.
+   * Repaints without document changes, history entries or onChange events.
+   * Finite opacity is clamped to 0–100; non-finite values reject the snapshot.
+   * Unknown/deleted IDs are ignored when rendering. Reset/unmount clears it.
+   * Per-element offsets are explicit: target bound labels/frame children too.
+   * Frame opacity still multiplies child opacity. Decorations follow their owner.
+   * Exports and interactive geometry (hit tests, selection, editing) use document
+   * values, including while authoring an animation preview in edit mode.
+   */
+  setElementRenderOverrides: InstanceType<
     typeof App
-  >["clearElementAnimationOverrides"];
+  >["setElementRenderOverrides"];
   registerAction: (action: Action) => void;
   refresh: InstanceType<typeof App>["refresh"];
   setToast: InstanceType<typeof App>["setToast"];

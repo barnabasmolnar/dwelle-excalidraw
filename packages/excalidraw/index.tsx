@@ -111,7 +111,6 @@ const ExcalidrawBase = (props: ExcalidrawProps) => {
     children,
     validateEmbeddable,
     renderEmbeddable,
-    resolveRenderOpacity,
     aiEnabled,
     showDeprecatedFonts,
     renderScrollbars,
@@ -255,7 +254,6 @@ const ExcalidrawBase = (props: ExcalidrawProps) => {
           onDuplicate={onDuplicate}
           validateEmbeddable={validateEmbeddable}
           renderEmbeddable={renderEmbeddable}
-          resolveRenderOpacity={resolveRenderOpacity}
           aiEnabled={aiEnabled !== false}
           showDeprecatedFonts={showDeprecatedFonts}
           renderScrollbars={renderScrollbars}
@@ -574,3 +572,5 @@ export * as icons from "./components/icons";
 export * as actions from "./actions/index";
 
 export type { SetViewportOptions } from "./viewport";
+
+export type { ElementRenderOverride, ElementRenderOverrides } from "./types";
